@@ -464,7 +464,7 @@ Result ZipFile::uncompressEntry (int index, const File& targetDirectory, Overwri
             return Result::ok();
 
         if (! targetFile.deleteFile())
-            return Result::fail ("Failed to write to target file: " + targetFile.getFullPathName());
+            return Result::fail ("Failed to remove existing target file: " + targetFile.getFullPathName());
     }
 
     if (followSymlinks == FollowSymlinks::no && hasSymbolicPart (targetDirectory, targetFile.getParentDirectory()))
@@ -486,7 +486,8 @@ Result ZipFile::uncompressEntry (int index, const File& targetDirectory, Overwri
         FileOutputStream out (targetFile);
 
         if (out.failedToOpen())
-            return Result::fail ("Failed to write to target file: " + targetFile.getFullPathName());
+            return Result::fail ("Failed to write to target file: " + targetFile.getFullPathName().quoted() +
+                "\n" + out.getStatus().getErrorMessage());
 
         out << *in;
     }
