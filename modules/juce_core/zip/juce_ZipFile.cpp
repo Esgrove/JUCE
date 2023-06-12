@@ -528,7 +528,7 @@ Result ZipFile::uncompressEntry (int index, const File& targetDirectory, Overwri
             return Result::ok();
 
         if (! targetFile.deleteFile())
-            return Result::fail ("Failed to write to target file: " + targetFile.getFullPathName());
+            return Result::fail ("Failed to remove existing target file: " + targetFile.getFullPathName());
     }
 
     if (! targetFile.getParentDirectory().createDirectory())
@@ -556,7 +556,8 @@ Result ZipFile::uncompressEntry (int index, const File& targetDirectory, Overwri
             FileOutputStream out (targetFile);
 
             if (out.failedToOpen())
-                return Result::fail ("Failed to write to target file: " + targetFile.getFullPathName());
+                return Result::fail ("Failed to write to target file: " + targetFile.getFullPathName().quoted() +
+                    "\n" + out.getStatus().getErrorMessage());
 
             if (const auto result = copyEntryData (*in, out, zei->entry.uncompressedSize, entryPath); result.failed())
                 return result;
