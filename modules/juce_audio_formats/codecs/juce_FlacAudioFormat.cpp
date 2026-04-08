@@ -198,6 +198,177 @@ namespace FlacNamespace
 //==============================================================================
 static const char* const flacFormatName = "FLAC file";
 
+static const char* const flacVorbisCommentCountMetadataKey = "juce_flac_vorbis_comment_count";
+static const char* const flacVorbisCommentMetadataPrefix = "juce_flac_vorbis_comment_";
+static const char* const flacPictureCountMetadataKey = "juce_flac_picture_count";
+static const char* const flacPictureMetadataPrefix = "juce_flac_picture_";
+
+static String getFlacVorbisCommentMetadataKey (int index)
+{
+    return flacVorbisCommentMetadataPrefix + String (index);
+}
+
+static String getFlacPictureMetadataKey (int index, StringRef suffix)
+{
+    return flacPictureMetadataPrefix + String (index) + "_" + suffix;
+}
+
+static bool isFlacInternalMetadataKey (const String& key)
+{
+    return key == flacVorbisCommentCountMetadataKey || key == flacPictureCountMetadataKey
+        || key.startsWith (flacVorbisCommentMetadataPrefix) || key.startsWith (flacPictureMetadataPrefix);
+}
+
+static String getMetadataValueOrDefault (const StringMap& metadataValues, const String& key, const String& fallback = {})
+{
+    const auto iter = metadataValues.find (key);
+    return iter != metadataValues.cend() ? iter->second : fallback;
+}
+
+struct FlacMetadataBlockStorage
+{
+    FlacNamespace::FLAC__StreamMetadata block {};
+    std::vector<FlacNamespace::FLAC__StreamMetadata_VorbisComment_Entry> vorbisCommentEntries;
+    std::vector<MemoryBlock> ownedBuffers;
+
+    FlacMetadataBlockStorage()
+    {
+        zerostruct (block);
+    }
+};
+
+static MemoryBlock makeNullTerminatedUtf8Buffer (const String& text)
+{
+    const auto* utf8 = text.toRawUTF8();
+    return { utf8, strlen (utf8) + 1u };
+}
+
+static MemoryBlock makeNullTerminatedBinaryBuffer (const void* data, size_t size)
+{
+    MemoryBlock buffer (size + 1u, true);
+
+    if (size > 0)
+        memcpy (buffer.getData(), data, size);
+
+    return buffer;
+}
+
+static bool decodeBase64ToBlock (const String& encoded, MemoryBlock& destination)
+{
+    MemoryOutputStream decoded;
+
+    if (! Base64::convertFromBase64 (decoded, encoded))
+        return false;
+
+    destination = decoded.getMemoryBlock();
+    return true;
+}
+
+static uint32 getVorbisCommentBlockLength (const FlacMetadataBlockStorage& blockStorage)
+{
+    auto length = (uint32) sizeof (FlacNamespace::FLAC__uint32)
+                + blockStorage.block.data.vorbis_comment.vendor_string.length
+                + (uint32) sizeof (FlacNamespace::FLAC__uint32);
+
+    for (const auto& entry : blockStorage.vorbisCommentEntries)
+        length += (uint32) sizeof (FlacNamespace::FLAC__uint32) + entry.length;
+
+    return length;
+}
+
+static FlacMetadataBlockStorage createVorbisCommentBlock (const StringMap& metadataValues)
+{
+    FlacMetadataBlockStorage blockStorage;
+    blockStorage.block.type = FlacNamespace::FLAC__METADATA_TYPE_VORBIS_COMMENT;
+
+    const auto commentCount = getMetadataValueOrDefault (metadataValues, flacVorbisCommentCountMetadataKey).getIntValue();
+
+    for (int index = 0; index < commentCount; ++index)
+    {
+        MemoryBlock decodedComment;
+
+        if (! decodeBase64ToBlock (getMetadataValueOrDefault (metadataValues, getFlacVorbisCommentMetadataKey (index)),
+                                   decodedComment)
+            || decodedComment.getSize() == 0)
+            continue;
+
+        blockStorage.ownedBuffers.push_back (makeNullTerminatedBinaryBuffer (decodedComment.getData(), decodedComment.getSize()));
+
+        FlacNamespace::FLAC__StreamMetadata_VorbisComment_Entry entry {};
+        entry.length = (FlacNamespace::FLAC__uint32) decodedComment.getSize();
+        entry.entry = static_cast<FlacNamespace::FLAC__byte*> (blockStorage.ownedBuffers.back().getData());
+        blockStorage.vorbisCommentEntries.push_back (entry);
+    }
+
+    blockStorage.block.data.vorbis_comment.num_comments = (FlacNamespace::FLAC__uint32) blockStorage.vorbisCommentEntries.size();
+    blockStorage.block.data.vorbis_comment.comments = blockStorage.vorbisCommentEntries.empty() ? nullptr : blockStorage.vorbisCommentEntries.data();
+    blockStorage.block.length = getVorbisCommentBlockLength (blockStorage);
+    return blockStorage;
+}
+
+static uint32 getPictureBlockLength (const FlacNamespace::FLAC__StreamMetadata_Picture& picture)
+{
+    const auto mimeLength = picture.mime_type != nullptr ? (uint32) strlen (picture.mime_type) : 0u;
+    const auto descriptionLength = picture.description != nullptr
+                                 ? (uint32) strlen (reinterpret_cast<const char*> (picture.description))
+                                 : 0u;
+
+    return 8u * (uint32) sizeof (FlacNamespace::FLAC__uint32) + mimeLength + descriptionLength + picture.data_length;
+}
+
+static bool addPictureBlock (std::vector<FlacMetadataBlockStorage>& blocks, const StringMap& metadataValues, int index)
+{
+    const auto dataKey = getFlacPictureMetadataKey (index, "data");
+    MemoryBlock imageData;
+
+    if (! decodeBase64ToBlock (getMetadataValueOrDefault (metadataValues, dataKey), imageData)
+        || imageData.getSize() == 0)
+        return false;
+
+    FlacMetadataBlockStorage blockStorage;
+    blockStorage.block.type = FlacNamespace::FLAC__METADATA_TYPE_PICTURE;
+
+    blockStorage.ownedBuffers.push_back (makeNullTerminatedUtf8Buffer (
+        getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "mime"))));
+    blockStorage.ownedBuffers.push_back (makeNullTerminatedUtf8Buffer (
+        getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "description"))));
+    blockStorage.ownedBuffers.push_back (MemoryBlock (imageData));
+
+    auto& picture = blockStorage.block.data.picture;
+    picture.type = (FlacNamespace::FLAC__StreamMetadata_Picture_Type)
+        getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "type")).getIntValue();
+    picture.mime_type = static_cast<char*> (blockStorage.ownedBuffers[0].getData());
+    picture.description = static_cast<FlacNamespace::FLAC__byte*> (blockStorage.ownedBuffers[1].getData());
+    picture.width = (FlacNamespace::FLAC__uint32)
+        getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "width")).getIntValue();
+    picture.height = (FlacNamespace::FLAC__uint32)
+        getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "height")).getIntValue();
+    picture.depth = (FlacNamespace::FLAC__uint32)
+        getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "depth")).getIntValue();
+    picture.colors = (FlacNamespace::FLAC__uint32)
+        getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "colors")).getIntValue();
+    picture.data_length = (FlacNamespace::FLAC__uint32) imageData.getSize();
+    picture.data = static_cast<FlacNamespace::FLAC__byte*> (blockStorage.ownedBuffers[2].getData());
+    blockStorage.block.length = getPictureBlockLength (picture);
+    blocks.push_back (std::move (blockStorage));
+    return true;
+}
+
+static std::vector<FlacMetadataBlockStorage> createFlacMetadataBlocks (const StringMap& metadataValues)
+{
+    std::vector<FlacMetadataBlockStorage> blocks;
+
+    if (getMetadataValueOrDefault (metadataValues, flacVorbisCommentCountMetadataKey).getIntValue() > 0)
+        blocks.push_back (createVorbisCommentBlock (metadataValues));
+
+    const auto pictureCount = getMetadataValueOrDefault (metadataValues, flacPictureCountMetadataKey).getIntValue();
+
+    for (int index = 0; index < pictureCount; ++index)
+        addPictureBlock (blocks, metadataValues, index);
+
+    return blocks;
+}
+
 template <typename Item>
 auto emptyRange (Item item) { return Range<Item>::emptyRange (item); }
 
@@ -210,6 +381,9 @@ public:
         lengthInSamples = 0;
         decoder = FlacNamespace::FLAC__stream_decoder_new();
 
+        FLAC__stream_decoder_set_metadata_respond (decoder, FlacNamespace::FLAC__METADATA_TYPE_VORBIS_COMMENT);
+        FLAC__stream_decoder_set_metadata_respond (decoder, FlacNamespace::FLAC__METADATA_TYPE_PICTURE);
+
         ok = FLAC__stream_decoder_init_stream (decoder,
                                                readCallback_, seekCallback_, tellCallback_, lengthCallback_,
                                                eofCallback_, writeCallback_, metadataCallback_, errorCallback_,
@@ -217,6 +391,7 @@ public:
 
         if (ok)
         {
+            resetFlacMetadataValues();
             FLAC__stream_decoder_process_until_end_of_metadata (decoder);
 
             if (lengthInSamples == 0 && sampleRate > 0)
@@ -229,6 +404,7 @@ public:
                 auto tempLength = lengthInSamples;
 
                 FLAC__stream_decoder_reset (decoder);
+                resetFlacMetadataValues();
                 FLAC__stream_decoder_process_until_end_of_metadata (decoder);
                 lengthInSamples = tempLength;
             }
@@ -248,6 +424,57 @@ public:
         numChannels = info.channels;
 
         reservoir.setSize ((int) numChannels, 2 * (int) info.max_blocksize, false, false, true);
+    }
+
+    void useMetadataBlock (const FlacNamespace::FLAC__StreamMetadata& metadata)
+    {
+        switch (metadata.type)
+        {
+            case FlacNamespace::FLAC__METADATA_TYPE_STREAMINFO:       useMetadata (metadata.data.stream_info); break;
+            case FlacNamespace::FLAC__METADATA_TYPE_VORBIS_COMMENT:   storeVorbisCommentMetadata (metadata.data.vorbis_comment); break;
+            case FlacNamespace::FLAC__METADATA_TYPE_PICTURE:          storePictureMetadata (metadata.data.picture); break;
+            default:                                                  break;
+        }
+    }
+
+    void resetFlacMetadataValues()
+    {
+        for (int index = metadataValues.size(); --index >= 0;)
+            if (isFlacInternalMetadataKey (metadataValues.getAllKeys()[index]))
+                metadataValues.remove (index);
+
+        flacPictureMetadataIndex = 0;
+    }
+
+    void storeVorbisCommentMetadata (const FlacNamespace::FLAC__StreamMetadata_VorbisComment& vorbisComment)
+    {
+        metadataValues.set (flacVorbisCommentCountMetadataKey, String ((int) vorbisComment.num_comments));
+
+        for (FlacNamespace::FLAC__uint32 index = 0; index < vorbisComment.num_comments; ++index)
+        {
+            const auto& entry = vorbisComment.comments[index];
+            metadataValues.set (getFlacVorbisCommentMetadataKey ((int) index),
+                                Base64::toBase64 (entry.entry, (size_t) entry.length));
+        }
+    }
+
+    void storePictureMetadata (const FlacNamespace::FLAC__StreamMetadata_Picture& picture)
+    {
+        const auto pictureIndex = flacPictureMetadataIndex++;
+
+        metadataValues.set (flacPictureCountMetadataKey, String (flacPictureMetadataIndex));
+        metadataValues.set (getFlacPictureMetadataKey (pictureIndex, "type"), String ((int) picture.type));
+        metadataValues.set (getFlacPictureMetadataKey (pictureIndex, "mime"),
+                            picture.mime_type != nullptr ? String::fromUTF8 (picture.mime_type) : String());
+        metadataValues.set (getFlacPictureMetadataKey (pictureIndex, "description"),
+                            picture.description != nullptr ? String::fromUTF8 (reinterpret_cast<const char*> (picture.description))
+                                                          : String());
+        metadataValues.set (getFlacPictureMetadataKey (pictureIndex, "width"), String ((int) picture.width));
+        metadataValues.set (getFlacPictureMetadataKey (pictureIndex, "height"), String ((int) picture.height));
+        metadataValues.set (getFlacPictureMetadataKey (pictureIndex, "depth"), String ((int) picture.depth));
+        metadataValues.set (getFlacPictureMetadataKey (pictureIndex, "colors"), String ((int) picture.colors));
+        metadataValues.set (getFlacPictureMetadataKey (pictureIndex, "data"),
+                            Base64::toBase64 (picture.data, (size_t) picture.data_length));
     }
 
     bool readSamples (int* const* destSamples, int numDestChannels, int startOffsetInDestBuffer,
@@ -387,7 +614,7 @@ public:
                                    const FlacNamespace::FLAC__StreamMetadata* metadata,
                                    void* client_data)
     {
-        static_cast<FlacReader*> (client_data)->useMetadata (metadata->data.stream_info);
+        static_cast<FlacReader*> (client_data)->useMetadataBlock (*metadata);
     }
 
     static void errorCallback_ (const FlacNamespace::FLAC__StreamDecoder*, FlacNamespace::FLAC__StreamDecoderErrorStatus, void*)
@@ -399,6 +626,7 @@ private:
     AudioBuffer<float> reservoir;
     Range<int64> bufferedRange;
     bool ok = false, scanningForLength = false;
+    int flacPictureMetadataIndex = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FlacReader)
 };
@@ -408,7 +636,8 @@ private:
 class FlacWriter final : public AudioFormatWriter
 {
 public:
-    FlacWriter (OutputStream* out, double rate, uint32 numChans, uint32 bits, int qualityOptionIndex)
+    FlacWriter (OutputStream* out, double rate, uint32 numChans, uint32 bits,
+                int qualityOptionIndex, const StringMap& metadata)
         : AudioFormatWriter (out, flacFormatName, rate, numChans, bits),
           streamStartPos (output != nullptr ? jmax (output->getPosition(), 0ll) : 0ll)
     {
@@ -424,6 +653,18 @@ public:
         FLAC__stream_encoder_set_sample_rate (encoder, (unsigned int) sampleRate);
         FLAC__stream_encoder_set_blocksize (encoder, 0);
         FLAC__stream_encoder_set_do_escape_coding (encoder, true);
+
+        auto metadataBlocks = createFlacMetadataBlocks (metadata);
+        std::vector<FlacNamespace::FLAC__StreamMetadata*> metadataBlockPointers;
+        metadataBlockPointers.reserve (metadataBlocks.size());
+
+        for (auto& block : metadataBlocks)
+            metadataBlockPointers.push_back (&block.block);
+
+        if (! metadataBlockPointers.empty()
+            && ! FLAC__stream_encoder_set_metadata (encoder, metadataBlockPointers.data(),
+                                                    (uint32) metadataBlockPointers.size()))
+            return;
 
         ok = FLAC__stream_encoder_init_stream (encoder,
                                                encodeWriteCallback, encodeSeekCallback,
@@ -610,7 +851,8 @@ std::unique_ptr<AudioFormatWriter> FlacAudioFormat::createWriterFor (std::unique
                                                 options.getSampleRate(),
                                                 (uint32) options.getNumChannels(),
                                                 (uint32) options.getBitsPerSample(),
-                                                options.getQualityOptionIndex());
+                                                options.getQualityOptionIndex(),
+                                                options.getMetadataValues());
 
     if (! writer->ok)
         return nullptr;
