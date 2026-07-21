@@ -83,8 +83,8 @@ static String getMetadataValueOrDefault (const StringMap& metadataValues, const 
 
 struct FlacMetadataBlockStorage
 {
-    FlacNamespace::FLAC__StreamMetadata block {};
-    std::vector<FlacNamespace::FLAC__StreamMetadata_VorbisComment_Entry> vorbisCommentEntries;
+    FLAC__StreamMetadata block {};
+    std::vector<FLAC__StreamMetadata_VorbisComment_Entry> vorbisCommentEntries;
     std::vector<MemoryBlock> ownedBuffers;
 
     FlacMetadataBlockStorage()
@@ -122,12 +122,12 @@ static bool decodeBase64ToBlock (const String& encoded, MemoryBlock& destination
 
 static uint32 getVorbisCommentBlockLength (const FlacMetadataBlockStorage& blockStorage)
 {
-    auto length = (uint32) sizeof (FlacNamespace::FLAC__uint32)
+    auto length = (uint32) sizeof (FLAC__uint32)
                 + blockStorage.block.data.vorbis_comment.vendor_string.length
-                + (uint32) sizeof (FlacNamespace::FLAC__uint32);
+                + (uint32) sizeof (FLAC__uint32);
 
     for (const auto& entry : blockStorage.vorbisCommentEntries)
-        length += (uint32) sizeof (FlacNamespace::FLAC__uint32) + entry.length;
+        length += (uint32) sizeof (FLAC__uint32) + entry.length;
 
     return length;
 }
@@ -135,7 +135,7 @@ static uint32 getVorbisCommentBlockLength (const FlacMetadataBlockStorage& block
 static FlacMetadataBlockStorage createVorbisCommentBlock (const StringMap& metadataValues)
 {
     FlacMetadataBlockStorage blockStorage;
-    blockStorage.block.type = FlacNamespace::FLAC__METADATA_TYPE_VORBIS_COMMENT;
+    blockStorage.block.type = FLAC__METADATA_TYPE_VORBIS_COMMENT;
 
     const auto commentCount = getMetadataValueOrDefault (metadataValues, flacVorbisCommentCountMetadataKey).getIntValue();
 
@@ -150,26 +150,26 @@ static FlacMetadataBlockStorage createVorbisCommentBlock (const StringMap& metad
 
         blockStorage.ownedBuffers.push_back (makeNullTerminatedBinaryBuffer (decodedComment.getData(), decodedComment.getSize()));
 
-        FlacNamespace::FLAC__StreamMetadata_VorbisComment_Entry entry {};
-        entry.length = (FlacNamespace::FLAC__uint32) decodedComment.getSize();
-        entry.entry = static_cast<FlacNamespace::FLAC__byte*> (blockStorage.ownedBuffers.back().getData());
+        FLAC__StreamMetadata_VorbisComment_Entry entry {};
+        entry.length = (FLAC__uint32) decodedComment.getSize();
+        entry.entry = static_cast<FLAC__byte*> (blockStorage.ownedBuffers.back().getData());
         blockStorage.vorbisCommentEntries.push_back (entry);
     }
 
-    blockStorage.block.data.vorbis_comment.num_comments = (FlacNamespace::FLAC__uint32) blockStorage.vorbisCommentEntries.size();
+    blockStorage.block.data.vorbis_comment.num_comments = (FLAC__uint32) blockStorage.vorbisCommentEntries.size();
     blockStorage.block.data.vorbis_comment.comments = blockStorage.vorbisCommentEntries.empty() ? nullptr : blockStorage.vorbisCommentEntries.data();
     blockStorage.block.length = getVorbisCommentBlockLength (blockStorage);
     return blockStorage;
 }
 
-static uint32 getPictureBlockLength (const FlacNamespace::FLAC__StreamMetadata_Picture& picture)
+static uint32 getPictureBlockLength (const FLAC__StreamMetadata_Picture& picture)
 {
     const auto mimeLength = picture.mime_type != nullptr ? (uint32) strlen (picture.mime_type) : 0u;
     const auto descriptionLength = picture.description != nullptr
                                  ? (uint32) strlen (reinterpret_cast<const char*> (picture.description))
                                  : 0u;
 
-    return 8u * (uint32) sizeof (FlacNamespace::FLAC__uint32) + mimeLength + descriptionLength + picture.data_length;
+    return 8u * (uint32) sizeof (FLAC__uint32) + mimeLength + descriptionLength + picture.data_length;
 }
 
 static bool addPictureBlock (std::vector<FlacMetadataBlockStorage>& blocks, const StringMap& metadataValues, int index)
@@ -182,7 +182,7 @@ static bool addPictureBlock (std::vector<FlacMetadataBlockStorage>& blocks, cons
         return false;
 
     FlacMetadataBlockStorage blockStorage;
-    blockStorage.block.type = FlacNamespace::FLAC__METADATA_TYPE_PICTURE;
+    blockStorage.block.type = FLAC__METADATA_TYPE_PICTURE;
 
     blockStorage.ownedBuffers.push_back (makeNullTerminatedUtf8Buffer (
         getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "mime"))));
@@ -191,20 +191,20 @@ static bool addPictureBlock (std::vector<FlacMetadataBlockStorage>& blocks, cons
     blockStorage.ownedBuffers.push_back (MemoryBlock (imageData));
 
     auto& picture = blockStorage.block.data.picture;
-    picture.type = (FlacNamespace::FLAC__StreamMetadata_Picture_Type)
+    picture.type = (FLAC__StreamMetadata_Picture_Type)
         getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "type")).getIntValue();
     picture.mime_type = static_cast<char*> (blockStorage.ownedBuffers[0].getData());
-    picture.description = static_cast<FlacNamespace::FLAC__byte*> (blockStorage.ownedBuffers[1].getData());
-    picture.width = (FlacNamespace::FLAC__uint32)
+    picture.description = static_cast<FLAC__byte*> (blockStorage.ownedBuffers[1].getData());
+    picture.width = (FLAC__uint32)
         getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "width")).getIntValue();
-    picture.height = (FlacNamespace::FLAC__uint32)
+    picture.height = (FLAC__uint32)
         getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "height")).getIntValue();
-    picture.depth = (FlacNamespace::FLAC__uint32)
+    picture.depth = (FLAC__uint32)
         getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "depth")).getIntValue();
-    picture.colors = (FlacNamespace::FLAC__uint32)
+    picture.colors = (FLAC__uint32)
         getMetadataValueOrDefault (metadataValues, getFlacPictureMetadataKey (index, "colors")).getIntValue();
-    picture.data_length = (FlacNamespace::FLAC__uint32) imageData.getSize();
-    picture.data = static_cast<FlacNamespace::FLAC__byte*> (blockStorage.ownedBuffers[2].getData());
+    picture.data_length = (FLAC__uint32) imageData.getSize();
+    picture.data = static_cast<FLAC__byte*> (blockStorage.ownedBuffers[2].getData());
     blockStorage.block.length = getPictureBlockLength (picture);
     blocks.push_back (std::move (blockStorage));
     return true;
@@ -237,8 +237,8 @@ public:
         lengthInSamples = 0;
         decoder = FLAC__stream_decoder_new();
 
-        FLAC__stream_decoder_set_metadata_respond (decoder, FlacNamespace::FLAC__METADATA_TYPE_VORBIS_COMMENT);
-        FLAC__stream_decoder_set_metadata_respond (decoder, FlacNamespace::FLAC__METADATA_TYPE_PICTURE);
+        FLAC__stream_decoder_set_metadata_respond (decoder, FLAC__METADATA_TYPE_VORBIS_COMMENT);
+        FLAC__stream_decoder_set_metadata_respond (decoder, FLAC__METADATA_TYPE_PICTURE);
 
         ok = FLAC__stream_decoder_init_stream (decoder,
                                                readCallback_, seekCallback_, tellCallback_, lengthCallback_,
@@ -282,13 +282,13 @@ public:
         reservoir.setSize ((int) numChannels, 2 * (int) info.max_blocksize, false, false, true);
     }
 
-    void useMetadataBlock (const FlacNamespace::FLAC__StreamMetadata& metadata)
+    void useMetadataBlock (const FLAC__StreamMetadata& metadata)
     {
         switch (metadata.type)
         {
-            case FlacNamespace::FLAC__METADATA_TYPE_STREAMINFO:       useMetadata (metadata.data.stream_info); break;
-            case FlacNamespace::FLAC__METADATA_TYPE_VORBIS_COMMENT:   storeVorbisCommentMetadata (metadata.data.vorbis_comment); break;
-            case FlacNamespace::FLAC__METADATA_TYPE_PICTURE:          storePictureMetadata (metadata.data.picture); break;
+            case FLAC__METADATA_TYPE_STREAMINFO:       useMetadata (metadata.data.stream_info); break;
+            case FLAC__METADATA_TYPE_VORBIS_COMMENT:   storeVorbisCommentMetadata (metadata.data.vorbis_comment); break;
+            case FLAC__METADATA_TYPE_PICTURE:          storePictureMetadata (metadata.data.picture); break;
             default:                                                  break;
         }
     }
@@ -302,11 +302,11 @@ public:
         flacPictureMetadataIndex = 0;
     }
 
-    void storeVorbisCommentMetadata (const FlacNamespace::FLAC__StreamMetadata_VorbisComment& vorbisComment)
+    void storeVorbisCommentMetadata (const FLAC__StreamMetadata_VorbisComment& vorbisComment)
     {
         metadataValues.set (flacVorbisCommentCountMetadataKey, String ((int) vorbisComment.num_comments));
 
-        for (FlacNamespace::FLAC__uint32 index = 0; index < vorbisComment.num_comments; ++index)
+        for (FLAC__uint32 index = 0; index < vorbisComment.num_comments; ++index)
         {
             const auto& entry = vorbisComment.comments[index];
             metadataValues.set (getFlacVorbisCommentMetadataKey ((int) index),
@@ -314,7 +314,7 @@ public:
         }
     }
 
-    void storePictureMetadata (const FlacNamespace::FLAC__StreamMetadata_Picture& picture)
+    void storePictureMetadata (const FLAC__StreamMetadata_Picture& picture)
     {
         const auto pictureIndex = flacPictureMetadataIndex++;
 
@@ -511,7 +511,7 @@ public:
         FLAC__stream_encoder_set_do_escape_coding (encoder, true);
 
         auto metadataBlocks = createFlacMetadataBlocks (metadata);
-        std::vector<FlacNamespace::FLAC__StreamMetadata*> metadataBlockPointers;
+        std::vector<FLAC__StreamMetadata*> metadataBlockPointers;
         metadataBlockPointers.reserve (metadataBlocks.size());
 
         for (auto& block : metadataBlocks)
