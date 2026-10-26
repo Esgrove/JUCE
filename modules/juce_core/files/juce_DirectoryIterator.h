@@ -164,6 +164,11 @@ private:
             }
 
             knownPaths->insert (directory);
+
+            // On Windows, getLinkedTarget() returns the normalised final path, which can differ from
+            // the path this iterator was given, for example when that contains an 8.3 short name.
+            // Storing both forms lets the cycle check recognise a link back to this directory.
+            knownPaths->insert (directory.getLinkedTarget());
         }
     }
 
