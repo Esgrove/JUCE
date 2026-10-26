@@ -110,7 +110,7 @@ public:
   #define JUCE_MAIN_FUNCTION_ARGS
  #else
   #define JUCE_MAIN_FUNCTION       int main (int argc, char* argv[])
-  #define JUCE_MAIN_FUNCTION_ARGS  argc, (const char**) argv
+  #define JUCE_MAIN_FUNCTION_ARGS  argc, const_cast<const char**> (argv)
  #endif
 
  #if JUCE_IOS
