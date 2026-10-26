@@ -96,7 +96,7 @@ struct ArgumentList
         /** Returns true if this argument starts with a double dash. */
         bool isLongOption() const;
 
-        /** Returns true if this argument starts with a single dash. */
+        /** Returns true if this argument starts with a single dash and isn't a negative number. */
         bool isShortOption() const;
 
         /** Returns true if this argument starts with a double dash, followed by the given string. */
@@ -110,7 +110,7 @@ struct ArgumentList
         /** Returns true if this argument starts with a single dash and then contains the given character somewhere inside it. */
         bool isShortOption (char shortOptionCharacter) const;
 
-        /** Returns true if this argument starts with one or more dashes. */
+        /** Returns true if this argument starts with one or more dashes and isn't a negative number. */
         bool isOption() const;
 
         /** Compares this argument against a string.
@@ -159,9 +159,9 @@ struct ArgumentList
         string that follows it (for short options).
         The option can also be a list of different versions separated by pipes, e.g. "--help|-h"
         If it finds a long option, it will look for an assignment with a '=' sign, e.g. "--file=foo.txt",
-        and will return the string following the '='. If there's no '=', it will return an empty string.
-        If it finds a short option, it will attempt to return the argument that follows it, unless
-        it's another option.
+        and will return the string following the '='.
+        If it finds a short option, or a long option without a '=', it will attempt to return the argument
+        that follows it, unless it's another option. A negative number such as "-14" counts as a value.
         If the argument isn't found, this returns an empty string.
     */
     String getValueForOption (StringRef option) const;
