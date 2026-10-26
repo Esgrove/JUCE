@@ -156,8 +156,29 @@ ArgumentList::ArgumentList (String exeName, StringArray args)
         arguments.add ({ a.unquoted() });
 }
 
+static String decodeArgument (const char* argument)
+{
+   #if JUCE_WINDOWS
+    // The narrow arguments use the ANSI code page on Windows, which UTF-8 decoding would mangle further.
+    return String (argument);
+   #else
+    // The String (const char*) constructor only accepts ASCII, so a non-ASCII path would lose its characters.
+    return String::fromUTF8 (argument);
+   #endif
+}
+
+static StringArray decodeArguments (int argc, char* argv[])
+{
+    StringArray args;
+
+    for (int i = 1; i < argc; ++i)
+        args.add (decodeArgument (argv[i]));
+
+    return args;
+}
+
 ArgumentList::ArgumentList (int argc, char* argv[])
-    : ArgumentList (argv[0], StringArray (argv + 1, argc - 1))
+    : ArgumentList (decodeArgument (argv[0]), decodeArguments (argc, argv))
 {
 }
 
