@@ -175,16 +175,41 @@ static String decodeArgument (const char* argument)
 
 static StringArray decodeArguments (int argc, char* argv[])
 {
+   #if JUCE_WINDOWS
+    // The ANSI code page cannot represent every character of a path.
+    // When argv holds the arguments of this process, read them from its UTF-16 command line instead.
+    if (argv == __argv)
+    {
+        int numWideArguments = 0;
+
+        if (auto* wideArguments = CommandLineToArgvW (GetCommandLineW(), &numWideArguments))
+        {
+            const ScopeGuard freeArguments { [&] { LocalFree (wideArguments); } };
+
+            if (numWideArguments == argc)
+                return StringArray (wideArguments, numWideArguments);
+        }
+    }
+   #endif
+
     StringArray args;
 
-    for (int i = 1; i < argc; ++i)
+    for (int i = 0; i < argc; ++i)
         args.add (decodeArgument (argv[i]));
 
     return args;
 }
 
+static ArgumentList createArgumentList (int argc, char* argv[])
+{
+    auto args = decodeArguments (argc, argv);
+    auto executable = args[0];
+    args.remove (0);
+    return { executable, args };
+}
+
 ArgumentList::ArgumentList (int argc, char* argv[])
-    : ArgumentList (decodeArgument (argv[0]), decodeArguments (argc, argv))
+    : ArgumentList (createArgumentList (argc, argv))
 {
 }
 
