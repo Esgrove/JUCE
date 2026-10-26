@@ -377,6 +377,8 @@ struct VBRTagData
     bool read (const uint8* data) noexcept
     {
         flags = 0;
+        encoderDelay = 0;
+        encoderPadding = 0;
 
         const int layer = (data[1] >> 1) & 3;
         if (layer != 1)
@@ -440,7 +442,18 @@ struct VBRTagData
         vbrScale = -1;
 
         if (flags & 8)
+        {
             vbrScale = (int) ByteOrder::bigEndianInt (data);
+            data += 4;
+        }
+
+        // The LAME extension stores how many samples the encoder added before and after the audio,
+        // as two 12-bit values after its 21 bytes of encoder version and settings.
+        if (isLameTag (data))
+        {
+            encoderDelay   = (data[21] << 4) | (data[22] >> 4);
+            encoderPadding = ((data[22] & 0x0f) << 8) | data[23];
+        }
 
         headersize = ((type + 1) * 72000 * bitrate) / sampleRate;
         return true;
@@ -448,6 +461,7 @@ struct VBRTagData
 
     uint8 toc[100];
     int sampleRate, vbrScale, headersize;
+    int encoderDelay = 0, encoderPadding = 0;
     unsigned int flags, frames, bytes;
 
 private:
@@ -455,6 +469,12 @@ private:
     {
         return (d[0] == 'X' && d[1] == 'i' && d[2] == 'n' && d[3] == 'g')
             || (d[0] == 'I' && d[1] == 'n' && d[2] == 'f' && d[3] == 'o');
+    }
+
+    static bool isLameTag (const uint8* d) noexcept
+    {
+        return (d[0] == 'L' && d[1] == 'A' && d[2] == 'M' && d[3] == 'E')
+            || (d[0] == 'L' && d[1] == 'a' && d[2] == 'v' && (d[3] == 'c' || d[3] == 'f'));
     }
 };
 
@@ -1579,7 +1599,7 @@ struct MP3Stream
     MP3Frame frame;
     VBRTagData vbrTagData;
     BufferedInputStream stream;
-    int numFrames = 0, currentFrameIndex = 0;
+    int numFrames = 0, currentFrameIndex = 0, encoderDelay = 0, encoderPadding = 0;
 
 private:
     bool headerParsed, sideParsed, dataParsed, needToSyncBitStream;
@@ -1747,6 +1767,8 @@ private:
         if (vbrTagData.read (xing))
         {
             numFrames = (int) vbrTagData.frames;
+            encoderDelay = vbrTagData.encoderDelay;
+            encoderPadding = vbrTagData.encoderPadding;
             stream.setPosition (oldPos + frameOffset + jmax (vbrTagData.headersize, 1));
             return true;
         }
@@ -2969,6 +2991,19 @@ public:
             sampleRate = stream.frame.getFrequency();
             numChannels = (unsigned int) stream.frame.numChannels;
             lengthInSamples = findLength (streamPos);
+
+            // Leave out the delay of the layer III synthesis, and the samples the encoder added before
+            // and after the audio when the LAME tag records them, so that sample positions match the source
+            // that was encoded. The decoder delay already accounts for that much of the encoder padding.
+            const int64 decoderDelay = stream.frame.layer == 3 ? 529 : 0;
+            const auto leading  = decoderDelay + stream.encoderDelay;
+            const auto trailing = jmax ((int64) 0, stream.encoderPadding - decoderDelay);
+
+            if (leading + trailing < lengthInSamples)
+            {
+                samplesToSkip = leading;
+                lengthInSamples -= leading + trailing;
+            }
         }
     }
 
@@ -2980,6 +3015,8 @@ public:
             jassertfalse;
             return false;
         }
+
+        startSampleInFile += samplesToSkip;
 
         if (currentPosition != startSampleInFile)
         {
@@ -3047,7 +3084,7 @@ public:
 
 private:
     MP3Stream stream;
-    int64 currentPosition;
+    int64 currentPosition, samplesToSkip = 0;
     enum { decodedDataSize = 1152 };
     float decoded0[decodedDataSize], decoded1[decodedDataSize];
     int decodedStart, decodedEnd;
