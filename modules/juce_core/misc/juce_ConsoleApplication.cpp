@@ -87,9 +87,15 @@ File ArgumentList::Argument::resolveAsExistingFolder() const
     return f;
 }
 
-static bool isShortOptionFormat (StringRef s)  { return s[0] == '-' && s[1] != '-'; }
+// A negative number such as "-14" or "-.5" is a value rather than an option.
+static bool isNegativeNumberFormat (StringRef s)
+{
+    return s[0] == '-' && (CharacterFunctions::isDigit (s[1]) || (s[1] == '.' && CharacterFunctions::isDigit (s[2])));
+}
+
+static bool isShortOptionFormat (StringRef s)  { return s[0] == '-' && s[1] != '-' && ! isNegativeNumberFormat (s); }
 static bool isLongOptionFormat  (StringRef s)  { return s[0] == '-' && s[1] == '-' && s[2] != '-'; }
-static bool isOptionFormat      (StringRef s)  { return s[0] == '-'; }
+static bool isOptionFormat      (StringRef s)  { return s[0] == '-' && ! isNegativeNumberFormat (s); }
 
 bool ArgumentList::Argument::isLongOption() const     { return isLongOptionFormat (text); }
 bool ArgumentList::Argument::isShortOption() const    { return isShortOptionFormat (text); }
@@ -123,7 +129,7 @@ bool ArgumentList::Argument::isShortOption (char option) const
 {
     jassert (option != '-'); // this is probably not what you intended to pass in
 
-    return isShortOption() && text.containsChar (String (option)[0]);
+    return isShortOption() && text.containsChar (static_cast<juce_wchar> (static_cast<unsigned char> (option)));
 }
 
 bool ArgumentList::Argument::operator== (StringRef wildcard) const
@@ -238,16 +244,13 @@ String ArgumentList::getValueForOption (StringRef option) const
 
         if (arg == option)
         {
-            if (arg.isShortOption())
-            {
-                if (i < arguments.size() - 1 && ! arguments.getReference (i + 1).isOption())
-                    return arguments.getReference (i + 1).text;
-
-                return {};
-            }
-
-            if (arg.isLongOption())
+            if (arg.isLongOption() && arg.text.containsChar ('='))
                 return arg.getLongOptionValue();
+
+            if (i < arguments.size() - 1 && ! arguments.getReference (i + 1).isOption())
+                return arguments.getReference (i + 1).text;
+
+            return {};
         }
     }
 
@@ -264,25 +267,22 @@ String ArgumentList::removeValueForOption (StringRef option)
 
         if (arg == option)
         {
-            if (arg.isShortOption())
-            {
-                if (i < arguments.size() - 1 && ! arguments.getReference (i + 1).isOption())
-                {
-                    auto result = arguments.getReference (i + 1).text;
-                    arguments.removeRange (i, 2);
-                    return result;
-                }
-
-                arguments.remove (i);
-                return {};
-            }
-
-            if (arg.isLongOption())
+            if (arg.isLongOption() && arg.text.containsChar ('='))
             {
                 auto result = arg.getLongOptionValue();
                 arguments.remove (i);
                 return result;
             }
+
+            if (i < arguments.size() - 1 && ! arguments.getReference (i + 1).isOption())
+            {
+                auto result = arguments.getReference (i + 1).text;
+                arguments.removeRange (i, 2);
+                return result;
+            }
+
+            arguments.remove (i);
+            return {};
         }
     }
 
