@@ -2260,6 +2260,11 @@ public:
         return holder->component.get();
     }
 
+    int getLastProcessResult() const noexcept override
+    {
+        return lastProcessResult.load();
+    }
+
    #ifdef JUCE_INTERNAL_HAS_ARA
           AudioPluginExtensions::ARAClient* getARAClient()       override { return this; }
     const AudioPluginExtensions::ARAClient* getARAClient() const override { return this; }
@@ -2507,7 +2512,7 @@ public:
             inputParameterChanges->set (cachedParamValues.getParamID (index), value, 0);
         });
 
-        processor->process (data);
+        lastProcessResult = processor->process (data);
 
         outputParameterChanges->forEach ([&] (Steinberg::int32 vstParamIndex, Vst::ParamID id, float value)
         {
@@ -3008,6 +3013,8 @@ private:
 
     StringArray programNames;
     Vst::ParamID programParameterID = (Vst::ParamID) -1;
+
+    std::atomic<Steinberg::tresult> lastProcessResult { kResultOk };
 
     std::map<Vst::ParamID, VST3Parameter*> idToParamMap;
     EditControllerParameterDispatcher parameterDispatcher;
