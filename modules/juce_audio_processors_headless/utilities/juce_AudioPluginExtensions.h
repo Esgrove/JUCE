@@ -90,6 +90,14 @@ struct AudioPluginExtensions
         virtual Steinberg::Vst::IComponent* getIComponentPtr() const noexcept = 0;
         virtual MemoryBlock getPreset() const = 0;
         virtual bool setPreset (const MemoryBlock&) = 0;
+
+        /** Returns the result code of the plug-in's most recent process() call.
+
+            The processBlock() of the instance carries on after a call that reports a failure,
+            so a host that needs to know can check this after each block.
+            Returns 0, which is kResultOk, before the first block and after every call that succeeded.
+        */
+        virtual int getLastProcessResult() const noexcept { return 0; }
     };
 
     /** Can be used to retrieve information about an AudioUnit that is wrapped by an AudioProcessor. */
