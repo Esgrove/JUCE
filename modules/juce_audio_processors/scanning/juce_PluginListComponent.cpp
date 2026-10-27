@@ -355,7 +355,12 @@ private:
         progressWindow.enterModalState (true, ModalCallbackFunction::create ([weakSelf] (auto)
         {
             if (const auto strong = weakSelf.lock())
+            {
                 strong->flags |= stopRequested;
+
+                // Lets a custom scanner that is waiting on a plug-in return without finishing it
+                strong->owner.list.cancelCustomScan();
+            }
         }));
 
         if (numThreads > 0)

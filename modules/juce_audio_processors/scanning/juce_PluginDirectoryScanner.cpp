@@ -116,13 +116,13 @@ bool PluginDirectoryScanner::scanNextFile (bool dontRescanIfAlreadyInList,
             crashedPlugins.removeString (file);
             setDeadMansPedalFile (crashedPlugins);
 
-            if (typesFound.size() == 0 && ! list.getBlacklistedFiles().contains (file))
+            if (typesFound.size() == 0 && ! list.getBlacklistedFiles().contains (file) && ! list.isCustomScanAbandoned())
                 failedFiles.add (file);
         }
     }
 
     updateProgress();
-    return index > 0;
+    return index > 0 && ! list.isCustomScanAbandoned();
 }
 
 bool PluginDirectoryScanner::skipNextFile()
