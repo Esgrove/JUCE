@@ -256,7 +256,21 @@ void KnownPluginList::scanAndAddDragAndDroppedFiles (AudioPluginFormatManager& f
 void KnownPluginList::scanFinished()
 {
     if (scanner != nullptr)
+    {
         scanner->scanFinished();
+        scanner->scanAbandoned = false;
+    }
+}
+
+void KnownPluginList::cancelCustomScan()
+{
+    if (scanner != nullptr)
+        scanner->abandonScan();
+}
+
+bool KnownPluginList::isCustomScanAbandoned() const noexcept
+{
+    return scanner != nullptr && scanner->scanAbandoned;
 }
 
 const StringArray& KnownPluginList::getBlacklistedFiles() const
@@ -625,10 +639,18 @@ void KnownPluginList::CustomScanner::scanFinished() {}
 
 bool KnownPluginList::CustomScanner::shouldExit() const noexcept
 {
+    if (scanAbandoned)
+        return true;
+
     if (auto* job = ThreadPoolJob::getCurrentThreadPoolJob())
         return job->shouldExit();
 
     return false;
+}
+
+void KnownPluginList::CustomScanner::abandonScan() noexcept
+{
+    scanAbandoned = true;
 }
 
 //==============================================================================

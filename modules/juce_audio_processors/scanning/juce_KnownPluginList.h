@@ -210,12 +210,39 @@ public:
             if becomes true.
         */
         bool shouldExit() const noexcept;
+
+        /** Abandons the current scan.
+
+            After this call, shouldExit() returns true, the scan stops after the file being scanned,
+            and the files that were not scanned are not reported as failed.
+            A scanner can call this itself, for example when the scan cannot run at all.
+            The request is cleared when the scan finishes.
+
+            @see KnownPluginList::cancelCustomScan
+        */
+        void abandonScan() noexcept;
+
+    private:
+        friend class KnownPluginList;
+        std::atomic<bool> scanAbandoned { false };
     };
 
     /** Supplies a custom scanner to be used in future scans.
         The KnownPluginList will take ownership of the object passed in.
     */
     void setCustomScanner (std::unique_ptr<CustomScanner> newScanner);
+
+    /** Abandons a scan that runs through the custom scanner, if there is one.
+
+        A blocking call into the custom scanner sees CustomScanner::shouldExit() return true and can return early,
+        and the files that were not scanned are not reported as failed.
+
+        @see CustomScanner::abandonScan
+    */
+    void cancelCustomScan();
+
+    /** Returns true while a scan that runs through the custom scanner has been abandoned. */
+    bool isCustomScanAbandoned() const noexcept;
 
     //==============================================================================
     /** @cond */
