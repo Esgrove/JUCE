@@ -330,6 +330,10 @@ void MessageManager::runDispatchLoop()
         // must only be called by the message thread!
         jassert (isThisTheMessageThread());
 
+        // Only JUCEApplicationBase::main creates the NSApplication, so a console app that
+        // uses ScopedJuceInitialiser_GUI has none yet, and [NSApp run] would return at once.
+        [NSApplication sharedApplication];
+
        #if JUCE_CATCH_UNHANDLED_EXCEPTIONS
         @try
         {
