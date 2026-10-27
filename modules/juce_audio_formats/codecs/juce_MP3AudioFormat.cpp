@@ -2703,7 +2703,7 @@ private:
             granule.maxBand[2] = (uint32) (max[2] + 1);
             granule.maxBandl   = (uint32) (max[3] + 1);
 
-            const int rmax = jmax (max[0], max[1], max[3]) + 1;
+            const int rmax = jmax (max[0], max[1], max[2]) + 1;
             granule.maxb = rmax ? (uint32) constants.shortLimit[sampleRate][rmax]
                                 : (uint32) constants.longLimit[sampleRate][max[3] + 1];
         }
