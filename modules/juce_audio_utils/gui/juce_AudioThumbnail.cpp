@@ -662,26 +662,70 @@ void AudioThumbnail::createChannels (const int length)
 bool AudioThumbnail::loadFrom (InputStream& rawInput)
 {
     BufferedInputStream input (rawInput, 4096);
+    std::array<char, 52> header;
 
-    if (input.readByte() != 'j' || input.readByte() != 'a' || input.readByte() != 't' || input.readByte() != 'm')
+    if (input.read (header.data(), (int) header.size()) != (int) header.size())
         return false;
 
+    MemoryInputStream fields (header.data(), header.size(), false);
+
+    if ((uint32) fields.readInt() != ByteOrder::littleEndianInt ("jatm"))
+        return false;
+
+    const auto newSamplesPerThumbSample = fields.readInt();
+    const auto newTotalSamples = fields.readInt64();
+    const auto newNumSamplesFinished = fields.readInt64();
+    const auto numThumbnailSamples = fields.readInt();
+    const auto newNumChannels = fields.readInt();
+    const auto newSampleRate = fields.readInt();
+
+    if (newSamplesPerThumbSample <= 0 || newTotalSamples < 0
+        || newNumSamplesFinished < 0 || newNumSamplesFinished > newTotalSamples
+        || numThumbnailSamples < 0 || newNumChannels < 0 || newSampleRate < 0)
+        return false;
+
+    const auto isEmpty = newTotalSamples == 0 && newNumSamplesFinished == 0
+                      && numThumbnailSamples == 0 && newNumChannels == 0 && newSampleRate == 0;
+
+    if (! isEmpty && (newTotalSamples == 0 || numThumbnailSamples == 0
+                      || newNumChannels == 0 || newSampleRate == 0
+                      || (int64) numThumbnailSamples - 1 > newTotalSamples / newSamplesPerThumbSample
+                      || newNumSamplesFinished / newSamplesPerThumbSample > numThumbnailSamples))
+        return false;
+
+    // Bound multiplication before allocating, and do not trust dimensions until all peak bytes are present.
+    const auto numValues = (int64) numThumbnailSamples * newNumChannels;
+
+    if (numValues > std::numeric_limits<int>::max() / 2)
+        return false;
+
+    const auto payloadBytes = numValues * 2;
+    const auto remaining = input.getNumBytesRemaining();
+
+    if (remaining >= 0 && remaining < payloadBytes)
+        return false;
+
+    MemoryBlock payload;
+    MemoryOutputStream output (payload, false);
+
+    // Grow only as real bytes arrive, including for streams with unknown or unreliable lengths.
+    if (output.OutputStream::writeFromInputStream (input, payloadBytes) != payloadBytes)
+        return false;
+
+    output.flush();
+    MemoryInputStream peaks (payload, false);
     const ScopedLock sl (lock);
     clearChannelData();
-
-    samplesPerThumbSample = input.readInt();
-    totalSamples = input.readInt64();             // Total number of source samples.
-    numSamplesFinished = input.readInt64();       // Number of valid source samples that have been read into the thumbnail.
-    int32 numThumbnailSamples = input.readInt();  // Number of samples in the thumbnail data.
-    numChannels = input.readInt();                // Number of audio channels.
-    sampleRate = input.readInt();                 // Source sample rate.
-    input.skipNextBytes (16);                     // (reserved)
-
+    samplesPerThumbSample = newSamplesPerThumbSample;
+    totalSamples = newTotalSamples;
+    numSamplesFinished = newNumSamplesFinished;
+    numChannels = newNumChannels;
+    sampleRate = newSampleRate;
     createChannels (numThumbnailSamples);
 
     for (int i = 0; i < numThumbnailSamples; ++i)
         for (int chan = 0; chan < numChannels; ++chan)
-            channels.getUnchecked (chan)->getData (i)->read (input);
+            channels.getUnchecked (chan)->getData (i)->read (peaks);
 
     return true;
 }
