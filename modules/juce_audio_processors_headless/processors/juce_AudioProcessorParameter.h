@@ -133,6 +133,7 @@ public:
         This could happen when the editor or some other internal operation changes
         a parameter. This method will call the setValue() method to change the
         value, and will then send a message to the host telling it about the change.
+        Non-finite values are ignored without notifying the host or parameter listeners.
 
         Note that to make sure the host correctly handles automation, you should call
         the beginChangeGesture() and endChangeGesture() methods to tell the host when
