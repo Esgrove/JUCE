@@ -130,7 +130,7 @@ public:
 
     static CharPointerType createFromCharPointer (const CharPointerType start, const CharPointerType end)
     {
-        if (start.getAddress() == nullptr || start.isEmpty())
+        if (start == end || start.getAddress() == nullptr || start.isEmpty())
             return CharPointerType (emptyString.text);
 
         auto numBytes = (size_t) (reinterpret_cast<const char*> (end.getAddress())
@@ -3086,6 +3086,14 @@ public:
             constexpr char emojiBuffer[] = "hello JUCE \xf0\x9f\xa7\x83";
             const auto emojiActualString = String::createStringFromData (emojiBuffer, sizeof (emojiBuffer));
             expect (emojiExpectedString == emojiActualString);
+        }
+
+        beginTest ("Empty UTF-8 ranges do not read past the end");
+        {
+            const char buffer[] { '\xef', '\xbb', '\xbf' };
+            const auto end = CharPointer_UTF8 (buffer + sizeof (buffer));
+            expect (String (end, end).isEmpty());
+            expect (String::createStringFromData (buffer, sizeof (buffer)).isEmpty());
         }
 
         beginTest ("createStringFromData reads Windows 1252");
