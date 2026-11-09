@@ -58,6 +58,9 @@ void AudioProcessorParameter::setOwner (Listener* listenerIn) noexcept
 
 void AudioProcessorParameter::setValueNotifyingHost (float newValue)
 {
+    if (! std::isfinite (newValue))
+        return;
+
     setValue (newValue);
     sendValueChangedMessageToListeners (newValue);
 }
@@ -110,6 +113,9 @@ void AudioProcessorParameter::endChangeGesture()
 
 void AudioProcessorParameter::sendValueChangedMessageToListeners (float newValue)
 {
+    if (! std::isfinite (newValue))
+        return;
+
     ScopedLock lock (listenerLock);
 
     for (int i = listeners.size(); --i >= 0;)
