@@ -289,6 +289,12 @@ public:
             case FLAC__METADATA_TYPE_STREAMINFO:       useMetadata (metadata.data.stream_info); break;
             case FLAC__METADATA_TYPE_VORBIS_COMMENT:   storeVorbisCommentMetadata (metadata.data.vorbis_comment); break;
             case FLAC__METADATA_TYPE_PICTURE:          storePictureMetadata (metadata.data.picture); break;
+            case FLAC__METADATA_TYPE_PADDING:
+            case FLAC__METADATA_TYPE_APPLICATION:
+            case FLAC__METADATA_TYPE_SEEKTABLE:
+            case FLAC__METADATA_TYPE_CUESHEET:
+            case FLAC__METADATA_TYPE_UNDEFINED:
+            case FLAC__MAX_METADATA_TYPE:
             default:                                                  break;
         }
     }
